@@ -83,7 +83,9 @@ function layout(content, userId = null, activePage = 'dashboard') {
     </head>
     <body>
         ${userId ? `
-        <aside class="fixed top-0 left-0 z-40 w-64 h-screen transition-transform -translate-x-full sm:translate-x-0 bg-white border-r border-blue-50">
+       <aside id="main-sidebar" class="fixed top-0 left-0 z-40 w-64 h-screen transition-transform -translate-x-full sm:translate-x-0 bg-white border-r border-blue-50">
+            <button onclick="toggleSidebar()" class="sm:hidden absolute top-4 right-4 text-slate-400">✕</button>
+            
             <div class="p-8 text-2xl font-bold text-sky-600 flex items-center gap-2"><span class="text-3xl">🛡️</span> MedTrack</div>
             <div class="px-6 mb-4">
                 <div class="bg-sky-50 p-3 rounded-2xl border border-sky-100">
@@ -123,6 +125,22 @@ function layout(content, userId = null, activePage = 'dashboard') {
         <script>
             function toggleChat() { document.getElementById('chat-box').classList.toggle('hidden'); }
             
+function toggleSidebar() {
+                const sidebar = document.getElementById('main-sidebar');
+                const overlay = document.getElementById('sidebar-overlay');
+                
+                sidebar.classList.toggle('-translate-x-full');
+                overlay.classList.toggle('hidden');
+            }
+            
+            // ปิดเมนูอัตโนมัติเมื่อกด Link (กรณีเปิดบนมือถือ)
+            document.querySelectorAll('#main-sidebar a').forEach(link => {
+                link.addEventListener('click', () => {
+                    if (window.innerWidth < 640) toggleSidebar();
+                });
+            });
+
+
             async function askAI() {
                 const input = document.getElementById('chat-input');
                 const content = document.getElementById('chat-content');
@@ -159,6 +177,18 @@ function layout(content, userId = null, activePage = 'dashboard') {
             });
         </script>
         ` : ''}
+
+<div class="sm:hidden flex items-center justify-between p-4 bg-white border-b sticky top-0 z-30">
+            <div class="text-xl font-bold text-sky-600 flex items-center gap-2">🛡️ MedTrack</div>
+            <button onclick="toggleSidebar()" class="p-2 text-slate-600 hover:bg-slate-100 rounded-lg">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16m-7 6h7" />
+                </svg>
+            </button>
+        </div>
+
+        <div id="sidebar-overlay" onclick="toggleSidebar()" class="fixed inset-0 bg-slate-900/50 z-30 hidden sm:hidden"></div>
+
         <main class="${userId ? 'sm:ml-64' : ''} p-5 pb-24 sm:pb-10"><div class="max-w-4xl mx-auto">${content}</div></main>
         <script>
             function confirmAction(e, title, text, confirmBtnText = 'ตกลง', icon = 'question') {
