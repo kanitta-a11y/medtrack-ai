@@ -1,4 +1,4 @@
-const fetch = require('node-fetch');
+//const fetch = require('node-fetch');
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const session = require('express-session');
@@ -27,49 +27,38 @@ const lineClient = new line.Client(lineConfig); // ใช้ตัวนี้�
 //const myLineId = 'Ub93df2f838d5756fa7c9e8040b65530f';
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.post(
-    '/callback',
-    line.middleware(lineConfig),
-    (req, res) => {
-        const events = req.body.events;
+
+app.post('/callback', line.middleware(lineConfig), (req, res) => {
+    try {
+        const events = req.body.events || [];
 
         events.forEach(event => {
 
-            // 1. ผู้ใช้แอด LINE
-            if (event.type === 'follow') {
-                const lineUserId = event.source.userId;
-                console.log('📌 New LINE user:', lineUserId);
-
+            if (event.type === 'follow' && event.replyToken) {
                 lineClient.replyMessage(event.replyToken, {
                     type: 'text',
                     text: 'สวัสดีครับ 👋\nกรุณาพิมพ์โค้ดจากหน้าเว็บ เพื่อเชื่อมบัญชี MedTrack'
                 });
             }
 
-            // 2. ผู้ใช้ส่งข้อความ
-            if (event.type === 'message' && event.message.type === 'text') {
+            if (event.type === 'message'
+                && event.message.type === 'text'
+                && event.replyToken) {
+
                 const text = event.message.text.trim();
                 const lineUserId = event.source.userId;
 
-                // ตัวอย่าง: LINK-XXXX
                 if (text.startsWith('LINK-')) {
-                    const token = text;
-
                     db.run(
                         "UPDATE users SET lineUserId=? WHERE linkToken=?",
-                        [lineUserId, token],
+                        [lineUserId, text],
                         function () {
-                            if (this.changes > 0) {
-                                lineClient.replyMessage(event.replyToken, {
-                                    type: 'text',
-                                    text: '✅ เชื่อมบัญชีสำเร็จแล้ว'
-                                });
-                            } else {
-                                lineClient.replyMessage(event.replyToken, {
-                                    type: 'text',
-                                    text: '❌ โค้ดไม่ถูกต้อง หรือถูกใช้ไปแล้ว'
-                                });
-                            }
+                            lineClient.replyMessage(event.replyToken, {
+                                type: 'text',
+                                text: this.changes > 0
+                                    ? '✅ เชื่อมบัญชีสำเร็จแล้ว'
+                                    : '❌ โค้ดไม่ถูกต้อง'
+                            });
                         }
                     );
                 }
@@ -77,8 +66,12 @@ app.post(
         });
 
         res.sendStatus(200);
+    } catch (err) {
+        console.error('Webhook Error:', err);
+        res.sendStatus(200); // สำคัญ! ห้ามปล่อย 500
     }
-);
+});
+
 
 app.use(express.static('public'));
 // --- 1. SETTINGS & MIDDLEWARE ---
