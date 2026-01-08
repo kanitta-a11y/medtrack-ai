@@ -72,7 +72,6 @@ app.post('/callback', line.middleware(lineConfig), (req, res) => {
     }
 });
 
-
 app.use(express.static('public'));
 // --- 1. SETTINGS & MIDDLEWARE ---
 // ใส่ Gemini API Key ของคุณที่นี่
