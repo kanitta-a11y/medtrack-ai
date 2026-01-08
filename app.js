@@ -662,5 +662,10 @@ async function resetAdminPassword() {
 }
 resetAdminPassword();
 
+console.log(
+  'LINE_SECRET length:',
+  process.env.LINE_CHANNEL_SECRET?.length
+);
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log('🚀 Running on port...', PORT));
