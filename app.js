@@ -7,6 +7,8 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const cron = require('node-cron');
+const token = 'LINK-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+
 // --- เพิ่ม Library AI ---
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
@@ -22,9 +24,63 @@ const lineConfig = {
 };
 
 const lineClient = new line.Client(lineConfig); // ใช้ตัวนี้ตัวเดียวพอครับ
-const myLineId = 'Ub93df2f838d5756fa7c9e8040b65530f';
+//const myLineId = 'Ub93df2f838d5756fa7c9e8040b65530f';
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.post(
+    '/callback',
+    line.middleware(lineConfig),
+    (req, res) => {
+        const events = req.body.events;
 
+        events.forEach(event => {
 
+            // 1. ผู้ใช้แอด LINE
+            if (event.type === 'follow') {
+                const lineUserId = event.source.userId;
+                console.log('📌 New LINE user:', lineUserId);
+
+                lineClient.replyMessage(event.replyToken, {
+                    type: 'text',
+                    text: 'สวัสดีครับ 👋\nกรุณาพิมพ์โค้ดจากหน้าเว็บ เพื่อเชื่อมบัญชี MedTrack'
+                });
+            }
+
+            // 2. ผู้ใช้ส่งข้อความ
+            if (event.type === 'message' && event.message.type === 'text') {
+                const text = event.message.text.trim();
+                const lineUserId = event.source.userId;
+
+                // ตัวอย่าง: LINK-XXXX
+                if (text.startsWith('LINK-')) {
+                    const token = text;
+
+                    db.run(
+                        "UPDATE users SET lineUserId=? WHERE linkToken=?",
+                        [lineUserId, token],
+                        function () {
+                            if (this.changes > 0) {
+                                lineClient.replyMessage(event.replyToken, {
+                                    type: 'text',
+                                    text: '✅ เชื่อมบัญชีสำเร็จแล้ว'
+                                });
+                            } else {
+                                lineClient.replyMessage(event.replyToken, {
+                                    type: 'text',
+                                    text: '❌ โค้ดไม่ถูกต้อง หรือถูกใช้ไปแล้ว'
+                                });
+                            }
+                        }
+                    );
+                }
+            }
+        });
+
+        res.sendStatus(200);
+    }
+);
+
+app.use(express.static('public'));
 // --- 1. SETTINGS & MIDDLEWARE ---
 // ใส่ Gemini API Key ของคุณที่นี่
 const genAI = new GoogleGenerativeAI("AIzaSyAlyfGADObdnOiVzygM80mxLIS7UpptG3A");
@@ -38,27 +94,44 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage: storage });
 
-app.use(express.urlencoded({ extended: true }));
-app.use(express.static('public'));
+
+
 app.use(session({ secret: 'medtrack-gentle-ui', resave: false, saveUninitialized: false }));
 
 // --- 2. DATABASE INIT ---
 db.serialize(() => {
-    db.run("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, email TEXT UNIQUE, password TEXT)");
+    db.run(`
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY,
+    email TEXT UNIQUE,
+    password TEXT,
+    lineUserId TEXT,
+    linkToken TEXT
+)`);
+
     db.run("CREATE TABLE IF NOT EXISTS medicines (id INTEGER PRIMARY KEY, userId INTEGER, name TEXT, info TEXT, image TEXT, time TEXT, stock REAL DEFAULT 0, unit TEXT, dosage REAL DEFAULT 1)");
     db.run("CREATE TABLE IF NOT EXISTS medicine_logs (id INTEGER PRIMARY KEY, userId INTEGER, medicineId INTEGER, medName TEXT, takenAt DATETIME DEFAULT CURRENT_TIMESTAMP)");
 });
 
 // ฟังก์ชันแจ้งเตือนเมื่อยาใกล้หมด
-function checkLowStock(medName, currentStock) {
+function checkLowStock(userId, medName, currentStock) {
     if (currentStock <= 5) {
-        // แก้ไขตรงนี้: ถอดปีกกา { to: ... } ออก เพราะ Client.pushMessage รับค่าแบบ (to, messages)
-        lineClient.pushMessage(myLineId, [{
-            type: 'text',
-            text: `⚠️ คำเตือน: ยา ${medName} ของคุณใกล้จะหมดแล้ว (เหลือเพียง ${currentStock} หน่วย) อย่าลืมเตรียมยาเพิ่มนะครับ!`
-        }]).catch(err => console.error("Line Error:", err));
+
+        db.get(
+            "SELECT lineUserId FROM users WHERE id = ?",
+            [userId],
+            (err, user) => {
+                if (user && user.lineUserId) {
+                    lineClient.pushMessage(user.lineUserId, [{
+                        type: 'text',
+                        text: `⚠️ ยา ${medName} ใกล้หมดแล้ว (เหลือ ${currentStock})`
+                    }]);
+                }
+            }
+        );
     }
 }
+
 // --- 3. UI LAYOUT (เพิ่มส่วน AI Chatbot เข้าไป) ---
 function layout(content, userId = null, activePage = 'dashboard') {
     return `
@@ -203,6 +276,7 @@ function toggleSidebar() {
 
 // --- 4. API & ROUTES ---
 
+
 // --- API AI CHATBOT (เวอร์ชันแก้ไขจุดขัดข้อง) ---
 app.post('/api/ai-chat', async (req, res) => {
     if (!req.session.userId) return res.status(401).json({ error: "Unauthorized" });
@@ -261,6 +335,21 @@ app.get('/api/user-info', (req, res) => {
     db.get("SELECT email FROM users WHERE id = ?", [req.session.userId], (err, row) => res.json(row || {}));
 });
 
+app.post('/api/forgot-password', (req, res) => {
+    const userEmail = req.body.email;
+    
+    // ส่งข้อความหา Admin ทาง LINE
+    lineClient.pushMessage(myLineId, [{
+        type: 'text',
+        text: `🆘 มีคำขอรีเซ็ตรหัสผ่าน!\n📧 จากผู้ใช้: ${userEmail}\n\nกรุณาตรวจสอบที่เมนูจัดการผู้ใช้งาน (Admin Section)`
+    }]).then(() => {
+        res.json({ success: true });
+    }).catch(err => {
+        console.error("Line Error:", err);
+        res.status(500).json({ error: "Failed to notify admin" });
+    });
+});
+
 // หน้าแผงควบคุม Admin
 app.get('/admin/users', (req, res) => {
     if (!req.session.userId) return res.redirect('/login');
@@ -292,6 +381,7 @@ app.post('/admin/reset-password/:id', async (req, res) => {
     });
 });
 
+
 app.get('/api/stats', (req, res) => {
     if (!req.session.userId) return res.json({ percent: 0 });
     db.get("SELECT COUNT(*) as target FROM medicines WHERE userId = ?", [req.session.userId], (err, row) => {
@@ -307,7 +397,17 @@ app.get('/', (req, res) => res.redirect('/dashboard'));
 
 app.get('/dashboard', (req, res) => {
     if (!req.session.userId) return res.redirect('/login');
-    db.all("SELECT * FROM medicines WHERE userId = ? ORDER BY time ASC", [req.session.userId], (err, meds) => {
+
+    db.get(
+        "SELECT linkToken FROM users WHERE id = ?",
+        [req.session.userId],
+        (err, user) => {
+
+            db.all(
+                "SELECT * FROM medicines WHERE userId = ? ORDER BY time ASC",
+                [req.session.userId],
+                (err, meds) => {
+
         const getTimeInfo = (timeStr) => {
             const hour = parseInt(timeStr.split(':')[0]);
             if (hour >= 5 && hour < 11) return { name: 'เช้า (Morning)', icon: '🌅', color: 'text-amber-500' };
@@ -345,6 +445,14 @@ app.get('/dashboard', (req, res) => {
             }
         }
         res.send(layout(`
+            <div class="soft-card p-5 mb-6 text-center">
+    <p class="text-sm text-slate-500">📱 เชื่อม LINE Bot</p>
+    <p class="text-2xl font-bold text-sky-600">${user.linkToken || '-'}</p>
+    <p class="text-xs text-slate-400">
+        แอด LINE Bot แล้วพิมพ์โค้ดนี้
+    </p>
+</div>
+
             <div class="mb-8"><h1 class="text-3xl font-bold text-slate-800">สวัสดีคุณผู้ใช้งาน</h1></div>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-10">
                 <div class="soft-card p-6 flex items-center gap-6">
@@ -364,6 +472,7 @@ app.get('/dashboard', (req, res) => {
                     new Chart(document.getElementById('statChart'), { type: 'doughnut', data: { datasets: [{ data: [d.percent, 100-d.percent], backgroundColor: ['#0ea5e9', '#f1f5f9'], borderWidth: 0 }] }, options: { cutout: '75%', plugins: { tooltip: { enabled: false } }, events: [] } });
                 });
             </script>`, req.session.userId, 'dashboard'));
+          });
     });
 });
 
@@ -405,7 +514,8 @@ app.post('/take/:id', (req, res) => {
             db.run("UPDATE medicines SET stock = ? WHERE id = ?", [newStock, req.params.id], () => {
                 
                 // --- เพิ่มบรรทัดนี้เพื่อสั่งให้ LINE เตือน ---
-                checkLowStock(m.name, newStock); 
+                checkLowStock(req.session.userId, m.name, newStock);
+
                 // --------------------------------------
 
                 const thaiTime = new Date(new Date().getTime() + (7 * 60 * 60 * 1000)).toISOString().replace('Z', '').replace('T', ' ');
@@ -426,12 +536,82 @@ app.get('/logs', (req, res) => {
 app.post('/del-log/:id', (req, res) => db.run("DELETE FROM medicine_logs WHERE id = ? AND userId = ?", [req.params.id, req.session.userId], () => res.redirect('/logs')));
 app.post('/delete/:id', (req, res) => db.run("DELETE FROM medicines WHERE id=? AND userId=?", [req.params.id, req.session.userId], () => res.redirect('/dashboard')));
 
-app.get('/login', (req, res) => res.send(layout(`<div class="max-w-md mx-auto mt-16 soft-card p-10 text-center"><h2 class="text-4xl font-bold text-sky-600 mb-2">MedTrack</h2><form method="POST" class="space-y-4 mt-8"><input name="email" type="email" placeholder="อีเมล" class="w-full p-4 bg-slate-50 border rounded-xl" required><input name="password" type="password" placeholder="รหัสผ่าน" class="w-full p-4 bg-slate-50 border rounded-xl" required><button class="w-full blue-gradient text-white py-4 rounded-xl font-bold shadow-lg">เข้าสู่ระบบ</button></form><div class="mt-6"><p class="text-sm text-slate-400">ยังไม่มีบัญชี? <a href="/register" class="text-sky-600 font-bold">สมัครสมาชิก</a></p></div></div>`)));
+app.get('/login', (req, res) => res.send(layout(`
+    <div class="max-w-md mx-auto mt-16 soft-card p-10 text-center">
+        <h2 class="text-4xl font-bold text-sky-600 mb-2">MedTrack</h2>
+        <form method="POST" class="space-y-4 mt-8" id="loginForm">
+            <input id="loginEmail" name="email" type="email" placeholder="อีเมล" class="w-full p-4 bg-slate-50 border rounded-xl" required>
+            <input name="password" type="password" placeholder="รหัสผ่าน" class="w-full p-4 bg-slate-50 border rounded-xl" required>
+            
+            <div class="text-right">
+                <button type="button" onclick="forgotPassword()" class="text-xs text-slate-400 hover:text-sky-600">ลืมรหัสผ่าน?</button>
+            </div>
+
+            <button class="w-full blue-gradient text-white py-4 rounded-xl font-bold shadow-lg">เข้าสู่ระบบ</button>
+        </form>
+        <div class="mt-6"><p class="text-sm text-slate-400">ยังไม่มีบัญชี? <a href="/register" class="text-sky-600 font-bold">สมัครสมาชิก</a></p></div>
+    </div>
+
+    <script>
+        async function forgotPassword() {
+            const email = document.getElementById('loginEmail').value;
+            if(!email) {
+                Swal.fire('กรุณากรอกอีเมล', 'กรุณากรอกอีเมลของคุณในช่องด้านบนก่อนกดลืมรหัสผ่าน', 'warning');
+                return;
+            }
+
+            const result = await Swal.fire({
+                title: 'แจ้งลืมรหัสผ่าน?',
+                text: "ระบบจะส่งคำขอรีเซ็ตรหัสผ่านไปยังแอดมินสำหรับอีเมล: " + email,
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonText: 'ส่งคำขอ',
+                cancelButtonText: 'ยกเลิก'
+            });
+
+            if (result.isConfirmed) {
+                fetch('/api/forgot-password', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                    body: 'email=' + encodeURIComponent(email)
+                });
+                Swal.fire('ส่งคำขอแล้ว!', 'กรุณารอแอดมินดำเนินการรีเซ็ตรหัสผ่านให้คุณ', 'success');
+            }
+        }
+    </script>
+`)));
 
 app.post('/login', (req, res) => { db.get("SELECT * FROM users WHERE email=?", [req.body.email], async (err, user) => { if (user && await bcrypt.compare(req.body.password, user.password)) { req.session.userId = user.id; res.redirect('/dashboard'); } else res.send("<script>alert('ผิดพลาด'); window.history.back();</script>"); }); });
-app.get('/register', (req, res) => res.send(layout(`<div class="max-w-md mx-auto mt-16 soft-card p-10 text-center"><h2 class="text-2xl font-bold mb-8 text-slate-800">สมัครสมาชิกใหม่</h2><form method="POST" class="space-y-4"><input name="email" type="email" placeholder="อีเมล" class="w-full p-4 bg-slate-50 border rounded-xl" required><input name="password" type="password" placeholder="รหัสผ่าน" class="w-full p-4 bg-slate-50 border rounded-xl" required><button class="w-full bg-slate-800 text-white py-4 rounded-xl font-bold shadow-lg">สร้างบัญชี</button></form></div>`)));
-app.post('/register', async (req, res) => { const hash = await bcrypt.hash(req.body.password, 10); db.run("INSERT INTO users (email, password) VALUES (?,?)", [req.body.email, hash], () => res.redirect('/login')); });
+app.get('/register', (req, res) => res.send(layout(`
+    <div class="max-w-md mx-auto mt-16 soft-card p-10 text-center">
+        <h2 class="text-2xl font-bold mb-8 text-slate-800">สมัครสมาชิกใหม่</h2>
+        
+        <form method="POST" class="space-y-4">
+            <input name="email" type="email" placeholder="อีเมล" class="w-full p-4 bg-slate-50 border rounded-xl" required>
+            <input name="password" type="password" placeholder="รหัสผ่าน" class="w-full p-4 bg-slate-50 border rounded-xl" required>
+            <button class="w-full bg-slate-800 text-white py-4 rounded-xl font-bold shadow-lg hover:bg-slate-700 transition">สร้างบัญชี</button>
+        </form>
+
+        <div class="mt-6 pt-6 border-t border-slate-100">
+            <p class="text-sm text-slate-400">มีบัญชีผู้ใช้งานอยู่แล้ว? 
+                <a href="/login" class="text-sky-600 font-bold hover:underline">เข้าสู่ระบบที่นี่</a>
+            </p>
+        </div>
+    </div>
+`)));
+app.post('/register', async (req, res) => {
+    const hash = await bcrypt.hash(req.body.password, 10);
+    const linkToken = 'LINK-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+
+    db.run(
+        "INSERT INTO users (email, password, linkToken) VALUES (?,?,?)",
+        [req.body.email, hash, linkToken],
+        () => res.redirect('/login')
+    );
+});
+
 app.get('/logout', (req, res) => { req.session.destroy(); res.redirect('/login'); });
+
 
 
 // --- ระบบแจ้งเตือนตามเวลา (ทุกๆ 1 นาที ระบบจะตรวจสอบว่ามียาต้องกินไหม) ---
@@ -445,19 +625,50 @@ cron.schedule('* * * * *', () => {
     console.log(`[System] Checking reminders for: ${currentTime}`);
 
     // ค้นหายาที่ตรงกับเวลาปัจจุบัน
-    db.all("SELECT * FROM medicines WHERE time = ?", [currentTime], (err, meds) => {
-        if (err) return console.error(err);
-        
-        meds.forEach(m => {
-            console.log(`[LINE] Sending alert for: ${m.name}`);
-            
-            // ส่งข้อความแจ้งเตือนเข้า LINE
-            lineClient.pushMessage(myLineId, [{
-                type: 'text',
-                text: `🔔 ได้เวลาทานยาแล้วครับ!\n💊 ยา: ${m.name}\n📢 รายละเอียด: ${m.info || '-'}\nครั้งละ: ${m.dosage} ${m.unit}`
-            }]).catch(err => console.error("Line Push Error:", err));
-        });
+   db.all(`
+    SELECT 
+        medicines.*, 
+        users.lineUserId
+    FROM medicines
+    JOIN users ON medicines.userId = users.id
+    WHERE medicines.time = ?
+`, [currentTime], (err, meds) => {
+    if (err) return console.error(err);
+
+    meds.forEach(m => {
+
+        // ถ้ายังไม่ผูก LINE → ข้าม
+        if (!m.lineUserId) return;
+
+        console.log(`[LINE] Sending alert to ${m.lineUserId} for: ${m.name}`);
+
+        lineClient.pushMessage(m.lineUserId, [{
+            type: 'text',
+            text: `🔔 ได้เวลาทานยาแล้วครับ!
+💊 ยา: ${m.name}
+📢 รายละเอียด: ${m.info || '-'}
+💊 ครั้งละ: ${m.dosage} ${m.unit}`
+        }]).catch(err => console.error("Line Push Error:", err));
     });
 });
 
-app.listen(3000, () => console.log('🚀 Running at http://localhost:3000'));
+});
+
+// --- ส่วนล้างรหัสผ่าน Admin เพื่อให้ bcrypt ตรวจสอบผ่าน ---
+async function resetAdminPassword() {
+    const email = 'adminadmin@gmail.com';
+    const rawPassword = '123456'; // รหัสผ่านใหม่ที่คุณต้องการใช้
+    const hashedPassword = await bcrypt.hash(rawPassword, 10);
+
+    db.run("UPDATE users SET password = ? WHERE email = ?", [hashedPassword, email], function(err) {
+        if (this.changes > 0) {
+            console.log(`✅ อัปเดตรหัสผ่านสำหรับ ${email} เรียบร้อยแล้ว! (รหัสคือ: ${rawPassword})`);
+        } else {
+            console.log("❌ ไม่พบอีเมล admin ในฐานข้อมูล กรุณาสมัครสมาชิกใหม่ด้วยอีเมลนี้ก่อน");
+        }
+    });
+}
+resetAdminPassword();
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log('🚀 Running on port', PORT));
