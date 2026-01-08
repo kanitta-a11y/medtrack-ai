@@ -1,0 +1,26 @@
+{
+  "name": "drug-app",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "@line/bot-sdk": "^10.5.0",
+    "bcrypt": "^6.0.0",
+    "ejs": "^3.1.10",
+    "express": "^5.2.1",
+    "express-session": "^1.18.2",
+    "multer": "^2.0.2",
+    "node-cron": "^4.2.1",
+    "node-fetch": "^2.7.0",
+    "path": "^0.12.7",
+    "sqlite3": "^5.1.7"
+  }
+}
