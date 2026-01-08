@@ -1,4 +1,6 @@
-//const fetch = require('node-fetch');
+const fetch = (...args) =>
+  import('node-fetch').then(({default: fetch}) => fetch(...args));
+
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const session = require('express-session');
@@ -19,14 +21,16 @@ const db = new sqlite3.Database('./database.db');
 const line = require('@line/bot-sdk');
 
 const lineConfig = {
-    channelAccessToken: 'JJkOkmi9CacIN1ojZpBF2bLer+vAUch5y64vSx5Z6IszLVItfgdndZB3lFBp70egBPB0CjL18cSRIByqYNwgKzwT5CFm+BwiTAj8mtX9UQ3vusgCMzLIjUt10jrBUSCi0WiCBBdxTErowivFfn3yDQdB04t89/1O/w1cDnyilFU=', 
-    channelSecret: 'c7930f4898a69831d06674c7f0145291'
+  channelAccessToken: process.env.LINE_ACCESS_TOKEN,
+  channelSecret: process.env.LINE_CHANNEL_SECRET
 };
+
 
 const lineClient = new line.Client(lineConfig); // ใช้ตัวนี้ตัวเดียวพอครับ
 //const myLineId = 'Ub93df2f838d5756fa7c9e8040b65530f';
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+
+
+
 
 app.post('/callback', line.middleware(lineConfig), (req, res) => {
     try {
@@ -71,6 +75,8 @@ app.post('/callback', line.middleware(lineConfig), (req, res) => {
         res.sendStatus(200); // สำคัญ! ห้ามปล่อย 500
     }
 });
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 app.use(express.static('public'));
 // --- 1. SETTINGS & MIDDLEWARE ---
