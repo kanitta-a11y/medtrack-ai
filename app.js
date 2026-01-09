@@ -1,5 +1,5 @@
 const fetch = (...args) =>
-  import('node-fetch').then(({default: fetch}) => fetch(...args));
+    import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
@@ -10,6 +10,12 @@ const path = require('path');
 const fs = require('fs');
 const cron = require('node-cron');
 const token = 'LINK-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+const apiKey = process.env.GEMINI_API_KEY;
+
+if (!apiKey) {
+    console.error("❌ GEMINI_API_KEY not set");
+}
+const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`;
 
 // --- เพิ่ม Library AI ---
 const { GoogleGenerativeAI } = require("@google/generative-ai");
@@ -21,16 +27,12 @@ const db = new sqlite3.Database('./database.db');
 const line = require('@line/bot-sdk');
 
 const lineConfig = {
-  channelAccessToken: process.env.LINE_ACCESS_TOKEN,
-  channelSecret: process.env.LINE_CHANNEL_SECRET
+    channelAccessToken: process.env.LINE_ACCESS_TOKEN,
+    channelSecret: process.env.LINE_CHANNEL_SECRET
 };
-
 
 const lineClient = new line.Client(lineConfig); // ใช้ตัวนี้ตัวเดียวพอครับ
 //const myLineId = 'Ub93df2f838d5756fa7c9e8040b65530f';
-
-
-
 
 app.post('/callback', line.middleware(lineConfig), (req, res) => {
     try {
@@ -81,7 +83,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static('public'));
 // --- 1. SETTINGS & MIDDLEWARE ---
 // ใส่ Gemini API Key ของคุณที่นี่
-const genAI = new GoogleGenerativeAI("AIzaSyAlyfGADObdnOiVzygM80mxLIS7UpptG3A");
+
 
 const uploadDir = path.join(__dirname, 'public', 'uploads');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
@@ -279,9 +281,9 @@ function toggleSidebar() {
 app.post('/api/ai-chat', async (req, res) => {
     if (!req.session.userId) return res.status(401).json({ error: "Unauthorized" });
     const userQuery = req.body.query;
-    
+
     // 1. เปลี่ยน API Key เป็นของคุณที่เพิ่งสร้างใหม่
-    const apiKey = "AIzaSyAlyfGADObdnOiVzygM80mxLIS7UpptG3A"; 
+    
 
     const getData = (sql, params) => new Promise((resolve, reject) => {
         db.all(sql, params, (err, rows) => err ? reject(err) : resolve(rows));
@@ -294,22 +296,22 @@ app.post('/api/ai-chat', async (req, res) => {
         const context = `คุณคือ MedBot ผู้ช่วยจัดการยา ตอบเป็นภาษาไทยอย่างสุภาพ ข้อมูลยาผู้ใช้: ${JSON.stringify(meds)} ประวัติการทาน: ${JSON.stringify(logs)} คำถามจากผู้ใช้: "${userQuery}"`;
 
         // เปลี่ยน URL ในส่วน fetch เป็นตัวนี้ครับ:
-// --- ส่วนที่ต้องแก้ไขใน app.js ---
+        // --- ส่วนที่ต้องแก้ไขใน app.js ---
 
-// 1. เปลี่ยนชื่อโมเดลเป็น gemini-1.5-flash-latest (รุ่นที่ Google ให้ใช้ฟรีล่าสุด)
-// 2. ใช้ URL เวอร์ชัน v1beta (ซึ่งรองรับรุ่นใหม่ๆ ได้ดีกว่าสำหรับ API Key ฟรี)
-// แก้ไขบรรทัด apiUrl ใน app.js ให้เป็นตามนี้เป๊ะๆ ครับ:
-// เปลี่ยน URL เป็นรุ่น 2.0 Flash ตามรายการที่ระบบอนุญาต
-// ใช้ v1beta และรุ่น gemini-flash-latest
-const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`;
+        // 1. เปลี่ยนชื่อโมเดลเป็น gemini-1.5-flash-latest (รุ่นที่ Google ให้ใช้ฟรีล่าสุด)
+        // 2. ใช้ URL เวอร์ชัน v1beta (ซึ่งรองรับรุ่นใหม่ๆ ได้ดีกว่าสำหรับ API Key ฟรี)
+        // แก้ไขบรรทัด apiUrl ใน app.js ให้เป็นตามนี้เป๊ะๆ ครับ:
+        // เปลี่ยน URL เป็นรุ่น 2.0 Flash ตามรายการที่ระบบอนุญาต
+        // ใช้ v1beta และรุ่น gemini-flash-latest
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`;
 
-const response = await fetch(apiUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-        contents: [{ parts: [{ text: context }] }]
-    })
-});
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: context }] }]
+            })
+        });
         const data = await response.json();
 
         // ตรวจสอบว่า Google ส่ง Error กลับมาไหม
@@ -335,7 +337,7 @@ app.get('/api/user-info', (req, res) => {
 
 app.post('/api/forgot-password', (req, res) => {
     const userEmail = req.body.email;
-    
+
     // ส่งข้อความหา Admin ทาง LINE
     lineClient.pushMessage(myLineId, [{
         type: 'text',
@@ -406,21 +408,21 @@ app.get('/dashboard', (req, res) => {
                 [req.session.userId],
                 (err, meds) => {
 
-        const getTimeInfo = (timeStr) => {
-            const hour = parseInt(timeStr.split(':')[0]);
-            if (hour >= 5 && hour < 11) return { name: 'เช้า (Morning)', icon: '🌅', color: 'text-amber-500' };
-            if (hour >= 11 && hour < 15) return { name: 'กลางวัน (Afternoon)', icon: '☀️', color: 'text-sky-500' };
-            if (hour >= 15 && hour < 20) return { name: 'เย็น (Evening)', icon: '🌆', color: 'text-orange-500' };
-            return { name: 'ก่อนนอน (Night)', icon: '🌙', color: 'text-indigo-500' };
-        };
-        const groups = { 'เช้า (Morning)': [], 'กลางวัน (Afternoon)': [], 'เย็น (Evening)': [], 'ก่อนนอน (Night)': [] };
-        meds.forEach(m => { groups[getTimeInfo(m.time).name].push(m); });
+                    const getTimeInfo = (timeStr) => {
+                        const hour = parseInt(timeStr.split(':')[0]);
+                        if (hour >= 5 && hour < 11) return { name: 'เช้า (Morning)', icon: '🌅', color: 'text-amber-500' };
+                        if (hour >= 11 && hour < 15) return { name: 'กลางวัน (Afternoon)', icon: '☀️', color: 'text-sky-500' };
+                        if (hour >= 15 && hour < 20) return { name: 'เย็น (Evening)', icon: '🌆', color: 'text-orange-500' };
+                        return { name: 'ก่อนนอน (Night)', icon: '🌙', color: 'text-indigo-500' };
+                    };
+                    const groups = { 'เช้า (Morning)': [], 'กลางวัน (Afternoon)': [], 'เย็น (Evening)': [], 'ก่อนนอน (Night)': [] };
+                    meds.forEach(m => { groups[getTimeInfo(m.time).name].push(m); });
 
-        let dashboardContent = '';
-        for (const [title, items] of Object.entries(groups)) {
-            if (items.length > 0) {
-                const info = getTimeInfo(items[0].time);
-                dashboardContent += `
+                    let dashboardContent = '';
+                    for (const [title, items] of Object.entries(groups)) {
+                        if (items.length > 0) {
+                            const info = getTimeInfo(items[0].time);
+                            dashboardContent += `
                 <div class="mb-10">
                     <div class="flex items-center gap-2 mb-4 border-b border-slate-200 pb-2"><span class="text-2xl">${info.icon}</span><h2 class="text-xl font-bold ${info.color}">${title}</h2></div>
                     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -431,8 +433,8 @@ app.get('/dashboard', (req, res) => {
                             <div class="bg-sky-100 text-sky-700 px-3 py-1 rounded-full text-xs font-bold mb-2 uppercase">เวลา: ${m.time} น.</div>
                             <h3 class="font-bold text-xl mb-1 text-slate-800">${m.name}</h3>
                             <div class="w-full bg-slate-50 p-3 rounded-2xl mb-4">
-                                <div class="flex justify-between text-xs font-bold mb-1"><span class="text-slate-400 uppercase">คงเหลือ</span><span class="${m.stock <= (m.dosage*3) ? 'text-rose-500 animate-pulse' : 'text-sky-600'}">${m.stock} ${m.unit}</span></div>
-                                <div class="w-full bg-slate-200 h-1.5 rounded-full"><div class="blue-gradient h-full rounded-full" style="width: ${Math.min((m.stock/(m.dosage*10))*100, 100)}%"></div></div>
+                                <div class="flex justify-between text-xs font-bold mb-1"><span class="text-slate-400 uppercase">คงเหลือ</span><span class="${m.stock <= (m.dosage * 3) ? 'text-rose-500 animate-pulse' : 'text-sky-600'}">${m.stock} ${m.unit}</span></div>
+                                <div class="w-full bg-slate-200 h-1.5 rounded-full"><div class="blue-gradient h-full rounded-full" style="width: ${Math.min((m.stock / (m.dosage * 10)) * 100, 100)}%"></div></div>
                             </div>
                             <form onsubmit="confirmAction(event, 'บันทึกการทานยา?', '${m.name}', 'บันทึกแล้ว')" action="/take/${m.id}" method="POST" class="w-full">
                                 <button type="submit" class="w-full blue-gradient text-white py-4 rounded-xl font-bold ${m.stock < m.dosage ? 'opacity-50' : ''}" ${m.stock < m.dosage ? 'disabled' : ''}>${m.stock < m.dosage ? '❌ ยาหมด' : '✅ ทานแล้ว'}</button>
@@ -440,9 +442,9 @@ app.get('/dashboard', (req, res) => {
                         </div>`).join('')}
                     </div>
                 </div>`;
-            }
-        }
-        res.send(layout(`
+                        }
+                    }
+                    res.send(layout(`
             <div class="soft-card p-5 mb-6 text-center">
     <p class="text-sm text-slate-500">📱 เชื่อม LINE Bot</p>
     <p class="text-2xl font-bold text-sky-600">${user.linkToken || '-'}</p>
@@ -470,8 +472,8 @@ app.get('/dashboard', (req, res) => {
                     new Chart(document.getElementById('statChart'), { type: 'doughnut', data: { datasets: [{ data: [d.percent, 100-d.percent], backgroundColor: ['#0ea5e9', '#f1f5f9'], borderWidth: 0 }] }, options: { cutout: '75%', plugins: { tooltip: { enabled: false } }, events: [] } });
                 });
             </script>`, req.session.userId, 'dashboard'));
-          });
-    });
+                });
+        });
 });
 
 app.get('/edit/:id', (req, res) => {
@@ -510,7 +512,7 @@ app.post('/take/:id', (req, res) => {
         if (m && m.stock >= m.dosage) {
             const newStock = m.stock - m.dosage; // คำนวณสต็อกใหม่
             db.run("UPDATE medicines SET stock = ? WHERE id = ?", [newStock, req.params.id], () => {
-                
+
                 // --- เพิ่มบรรทัดนี้เพื่อสั่งให้ LINE เตือน ---
                 checkLowStock(req.session.userId, m.name, newStock);
 
@@ -617,13 +619,13 @@ cron.schedule('* * * * *', () => {
     const now = new Date();
     // ปรับเวลาให้เป็นเขตเวลาไทย (GMT+7)
     const thTime = new Date(now.getTime() + (7 * 60 * 60 * 1000));
-    const currentTime = thTime.getUTCHours().toString().padStart(2, '0') + ":" + 
-                        thTime.getUTCMinutes().toString().padStart(2, '0');
+    const currentTime = thTime.getUTCHours().toString().padStart(2, '0') + ":" +
+        thTime.getUTCMinutes().toString().padStart(2, '0');
 
     console.log(`[System] Checking reminders for: ${currentTime}`);
 
     // ค้นหายาที่ตรงกับเวลาปัจจุบัน
-   db.all(`
+    db.all(`
     SELECT 
         medicines.*, 
         users.lineUserId
@@ -631,24 +633,24 @@ cron.schedule('* * * * *', () => {
     JOIN users ON medicines.userId = users.id
     WHERE medicines.time = ?
 `, [currentTime], (err, meds) => {
-    if (err) return console.error(err);
+        if (err) return console.error(err);
 
-    meds.forEach(m => {
+        meds.forEach(m => {
 
-        // ถ้ายังไม่ผูก LINE → ข้าม
-        if (!m.lineUserId) return;
+            // ถ้ายังไม่ผูก LINE → ข้าม
+            if (!m.lineUserId) return;
 
-        console.log(`[LINE] Sending alert to ${m.lineUserId} for: ${m.name}`);
+            console.log(`[LINE] Sending alert to ${m.lineUserId} for: ${m.name}`);
 
-        lineClient.pushMessage(m.lineUserId, [{
-            type: 'text',
-            text: `🔔 ได้เวลาทานยาแล้วครับ!
+            lineClient.pushMessage(m.lineUserId, [{
+                type: 'text',
+                text: `🔔 ได้เวลาทานยาแล้วครับ!
 💊 ยา: ${m.name}
 📢 รายละเอียด: ${m.info || '-'}
 💊 ครั้งละ: ${m.dosage} ${m.unit}`
-        }]).catch(err => console.error("Line Push Error:", err));
+            }]).catch(err => console.error("Line Push Error:", err));
+        });
     });
-});
 
 });
 
@@ -658,7 +660,7 @@ async function resetAdminPassword() {
     const rawPassword = '123456'; // รหัสผ่านใหม่ที่คุณต้องการใช้
     const hashedPassword = await bcrypt.hash(rawPassword, 10);
 
-    db.run("UPDATE users SET password = ? WHERE email = ?", [hashedPassword, email], function(err) {
+    db.run("UPDATE users SET password = ? WHERE email = ?", [hashedPassword, email], function (err) {
         if (this.changes > 0) {
             console.log(`✅ อัปเดตรหัสผ่านสำหรับ ${email} เรียบร้อยแล้ว! (รหัสคือ: ${rawPassword})`);
         } else {
@@ -669,8 +671,8 @@ async function resetAdminPassword() {
 resetAdminPassword();
 
 console.log(
-  'LINE_SECRET length:',
-  process.env.LINE_CHANNEL_SECRET?.length
+    'LINE_SECRET length:',
+    process.env.LINE_CHANNEL_SECRET?.length
 );
 
 const PORT = process.env.PORT || 3000;
