@@ -336,6 +336,13 @@ app.get('/api/user-info', (req, res) => {
     if (!req.session.userId) return res.json({});
     db.get("SELECT email FROM users WHERE id = ?", [req.session.userId], (err, row) => res.json(row || {}));
 });
+app.get('/take/:id', (req, res) => {
+    res.send(`
+        <form method="POST" action="/take/${req.params.id}">
+            <button type="submit">บันทึกว่าได้ทานยาแล้ว</button>
+        </form>
+    `);
+});
 
 app.post('/api/forgot-password', (req, res) => {
     const userEmail = req.body.email;
