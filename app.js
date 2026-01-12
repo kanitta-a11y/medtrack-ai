@@ -114,23 +114,25 @@ CREATE TABLE IF NOT EXISTS users (
 });
 
 // ฟังก์ชันแจ้งเตือนเมื่อยาใกล้หมด
-function checkLowStock(userId, medName, currentStock) {
-    if (currentStock <= 5) {
+function checkLowStock(userId, medName, currentStock, unit) {
+    // กำหนด threshold ตามหน่วย
+    let threshold = 5; // ค่า default
+    if (unit.toLowerCase() === 'ml') threshold = 30; // สำหรับยาน้ำ 30 ml
+    if (unit.toLowerCase() === 'เม็ด') threshold = 5; // สำหรับยาเม็ด 5 เม็ด
+    // เพิ่มหน่วยอื่นตามต้องการ
 
-        db.get(
-            "SELECT lineUserId FROM users WHERE id = ?",
-            [userId],
-            (err, user) => {
-                if (user && user.lineUserId) {
-                    lineClient.pushMessage(user.lineUserId, [{
-                        type: 'text',
-                        text: `⚠️ ยา ${medName} ใกล้หมดแล้ว (เหลือ ${currentStock})`
-                    }]);
-                }
+    if (currentStock <= threshold) {
+        db.get("SELECT lineUserId FROM users WHERE id = ?", [userId], (err, user) => {
+            if (user && user.lineUserId) {
+                lineClient.pushMessage(user.lineUserId, [{
+                    type: 'text',
+                    text: `⚠️ ยา ${medName} ใกล้หมดแล้ว (เหลือ ${currentStock} ${unit})`
+                }]);
             }
-        );
+        });
     }
 }
+
 
 // --- 3. UI LAYOUT (เพิ่มส่วน AI Chatbot เข้าไป) ---
 function layout(content, userId = null, activePage = 'dashboard') {
@@ -514,7 +516,8 @@ app.post('/take/:id', (req, res) => {
             db.run("UPDATE medicines SET stock = ? WHERE id = ?", [newStock, req.params.id], () => {
 
                 // --- เพิ่มบรรทัดนี้เพื่อสั่งให้ LINE เตือน ---
-                checkLowStock(req.session.userId, m.name, newStock);
+                checkLowStock(req.session.userId, m.name, newStock, m.unit);
+
 
                 // --------------------------------------
 
@@ -653,6 +656,15 @@ cron.schedule('* * * * *', () => {
     });
 
 });
+
+
+
+cron.schedule('0 8 * * *', () => { // ทุกวันเวลา 08:00
+    db.all("SELECT id, userId, name, stock, unit FROM medicines", [], (err, meds) => {
+        meds.forEach(m => checkLowStock(m.userId, m.name, m.stock, m.unit));
+    });
+});
+
 
 // --- ส่วนล้างรหัสผ่าน Admin เพื่อให้ bcrypt ตรวจสอบผ่าน ---
 async function resetAdminPassword() {
