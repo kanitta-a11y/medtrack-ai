@@ -11,7 +11,7 @@ const fs = require('fs');
 const cron = require('node-cron');
 const token = 'LINK-' + Math.random().toString(36).substring(2, 8).toUpperCase();
 const apiKey = process.env.GEMINI_API_KEY;
-const APP_VERSION = 'v1.0.3'; // เปลี่ยนเลขเวอร์ชันตามการอัปเดต
+const APP_VERSION = 'v1.0.4'; // เปลี่ยนเลขเวอร์ชันตามการอัปเดต
 
 if (!apiKey) {
     console.error("❌ GEMINI_API_KEY not set");
@@ -97,7 +97,13 @@ const upload = multer({ storage: storage });
 
 
 
-app.use(session({ secret: 'medtrack-gentle-ui', resave: false, saveUninitialized: false }));
+app.use(session({ 
+    secret: 'medtrack-gentle-ui', 
+    resave: false, 
+    saveUninitialized: false, 
+    cookie: { maxAge: 24*60*60*1000 } // 1 วัน
+}));
+
 
 // --- 2. DATABASE INIT ---
 db.serialize(() => {
@@ -448,7 +454,10 @@ app.get('/dashboard', (req, res) => {
                             <h3 class="font-bold text-xl mb-1 text-slate-800">${m.name}</h3>
                             <div class="w-full bg-slate-50 p-3 rounded-2xl mb-4">
                                 <div class="flex justify-between text-xs font-bold mb-1"><span class="text-slate-400 uppercase">คงเหลือ</span><span class="${m.stock <= (m.dosage * 3) ? 'text-rose-500 animate-pulse' : 'text-sky-600'}">${m.stock} ${m.unit}</span></div>
-                                <div class="w-full bg-slate-200 h-1.5 rounded-full"><div class="blue-gradient h-full rounded-full" style="width: ${Math.min((m.stock / (m.dosage * 10)) * 100, 100)}%"></div></div>
+                                <div class="w-full bg-slate-200 h-1.5 rounded-full">
+    <div class="blue-gradient h-full rounded-full" style="width: ${Math.min((parseFloat(m.stock) / (parseFloat(m.dosage) * 10)) * 100, 100)}%"></div>
+</div>
+
                             </div>
                             <form onsubmit="confirmAction(event, 'บันทึกการทานยา?', '${m.name}', 'บันทึกแล้ว')" action="/take/${m.id}" method="POST" class="w-full">
                                 <button type="submit" class="w-full blue-gradient text-white py-4 rounded-xl font-bold ${m.stock < m.dosage ? 'opacity-50' : ''}" ${m.stock < m.dosage ? 'disabled' : ''}>${m.stock < m.dosage ? '❌ ยาหมด' : '✅ ทานแล้ว'}</button>
@@ -514,31 +523,54 @@ app.post('/edit/:id', (req, res) => {
     db.run("UPDATE medicines SET name=?, time=?, unit=?, stock=?, dosage=?, info=? WHERE id=? AND userId=?", [name, time, unit, stock, dosage, info, req.params.id, req.session.userId], () => res.redirect('/dashboard'));
 });
 
-app.get('/add', (req, res) => res.send(layout(`<div class="soft-card max-w-lg mx-auto p-8"><h2 class="text-2xl font-bold mb-6 text-slate-800">➕ เพิ่มยาใหม่</h2><form method="POST" action="/add" enctype="multipart/form-data" class="space-y-4"><input name="name" placeholder="ชื่อยา" required class="w-full p-4 bg-slate-50 border rounded-xl"><div class="grid grid-cols-2 gap-4"><input type="time" name="time" required class="p-4 bg-slate-50 border rounded-xl"><input name="unit" placeholder="หน่วย" required class="p-4 bg-slate-50 border rounded-xl"></div><div class="grid grid-cols-2 gap-4"><input type="number" name="stock" placeholder="สต็อก" required class="p-4 bg-slate-50 border rounded-xl"><input type="number" step="0.1" name="dosage" placeholder="ทานครั้งละ" required class="p-4 bg-slate-50 border rounded-xl"></div><textarea name="info" placeholder="รายละเอียด" class="w-full p-4 bg-slate-50 border rounded-xl"></textarea><input type="file" name="image" required class="text-xs text-slate-400"><button class="w-full blue-gradient text-white py-4 rounded-xl font-bold shadow-md">บันทึกยา</button></form></div>`, req.session.userId, 'add')));
-
 app.post('/add', upload.single('image'), (req, res) => {
+    if (!req.session.userId) return res.redirect('/login');
+
     const { name, time, unit, stock, dosage, info } = req.body;
-    db.run("INSERT INTO medicines (userId, name, info, image, time, stock, unit, dosage) VALUES (?,?,?,?,?,?,?,?)", [req.session.userId, name, info, req.file ? req.file.filename : '', time, stock, unit, dosage], () => res.redirect('/dashboard'));
+    const stockNum = parseFloat(stock);
+    const dosageNum = parseFloat(dosage);
+
+    db.run("INSERT INTO medicines (userId, name, info, image, time, stock, unit, dosage) VALUES (?,?,?,?,?,?,?,?)",
+        [req.session.userId, name, info, req.file ? req.file.filename : '', time, stockNum, unit, dosageNum],
+        (err) => {
+            if(err) {
+                console.error("Add medicine error:", err);
+                return res.send("❌ เกิดข้อผิดพลาดในการเพิ่มยา");
+            }
+            res.redirect('/dashboard');
+        }
+    );
 });
 
+
+
 app.post('/take/:id', (req, res) => {
-    db.get("SELECT name, stock, dosage FROM medicines WHERE id = ?", [req.params.id], (err, m) => {
-        if (m && m.stock >= m.dosage) {
-            const newStock = m.stock - m.dosage; // คำนวณสต็อกใหม่
-            db.run("UPDATE medicines SET stock = ? WHERE id = ?", [newStock, req.params.id], () => {
+    if(!req.session.userId) return res.redirect('/login');
 
-                // --- เพิ่มบรรทัดนี้เพื่อสั่งให้ LINE เตือน ---
+    db.get("SELECT name, stock, dosage, unit FROM medicines WHERE id = ? AND userId = ?", [req.params.id, req.session.userId], (err, m) => {
+        if(err || !m) return res.redirect('/dashboard');
+
+        const stockNum = parseFloat(m.stock);
+        const dosageNum = parseFloat(m.dosage);
+
+        if(stockNum >= dosageNum) {
+            const newStock = stockNum - dosageNum;
+            db.run("UPDATE medicines SET stock = ? WHERE id = ?", [newStock, req.params.id], (err) => {
+                if(err) console.error(err);
                 checkLowStock(req.session.userId, m.name, newStock, m.unit);
-
-
-                // --------------------------------------
-
-                const thaiTime = new Date(new Date().getTime() + (7 * 60 * 60 * 1000)).toISOString().replace('Z', '').replace('T', ' ');
-                db.run("INSERT INTO medicine_logs (userId, medicineId, medName, takenAt) VALUES (?,?,?,?)", [req.session.userId, req.params.id, m.name, thaiTime], () => res.redirect('/dashboard'));
+                const thaiTime = new Date(new Date().getTime() + (7 * 60 * 60 * 1000))
+                    .toISOString().replace('Z', '').replace('T', ' ');
+                db.run("INSERT INTO medicine_logs (userId, medicineId, medName, takenAt) VALUES (?,?,?,?)",
+                    [req.session.userId, req.params.id, m.name, thaiTime],
+                    () => res.redirect('/dashboard')
+                );
             });
+        } else {
+            res.send("<script>alert('❌ สต็อกยาไม่พอ'); window.history.back();</script>");
         }
     });
 });
+
 
 app.get('/logs', (req, res) => {
     if (!req.session.userId) return res.redirect('/login');
