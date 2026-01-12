@@ -11,6 +11,7 @@ const fs = require('fs');
 const cron = require('node-cron');
 const token = 'LINK-' + Math.random().toString(36).substring(2, 8).toUpperCase();
 const apiKey = process.env.GEMINI_API_KEY;
+const APP_VERSION = 'v1.0.3'; // เปลี่ยนเลขเวอร์ชันตามการอัปเดต
 
 if (!apiKey) {
     console.error("❌ GEMINI_API_KEY not set");
@@ -338,11 +339,15 @@ app.get('/api/user-info', (req, res) => {
 });
 app.get('/take/:id', (req, res) => {
     res.send(`
-        <form method="POST" action="/take/${req.params.id}">
-            <button type="submit">บันทึกว่าได้ทานยาแล้ว</button>
-        </form>
+        <div style="text-align:center;margin-top:50px;">
+            <h2>บันทึกการทานยา</h2>
+            <form method="POST" action="/take/${req.params.id}">
+                <button type="submit" style="padding:10px 20px;font-size:16px;">✅ ทานยาแล้ว</button>
+            </form>
+        </div>
     `);
 });
+
 
 app.post('/api/forgot-password', (req, res) => {
     const userEmail = req.body.email;
@@ -547,6 +552,9 @@ app.post('/del-log/:id', (req, res) => db.run("DELETE FROM medicine_logs WHERE i
 app.post('/delete/:id', (req, res) => db.run("DELETE FROM medicines WHERE id=? AND userId=?", [req.params.id, req.session.userId], () => res.redirect('/dashboard')));
 
 app.get('/login', (req, res) => res.send(layout(`
+    <div class="absolute top-2 right-4 text-xs text-slate-400">
+    เวอร์ชัน: ${APP_VERSION}
+</div>
     <div class="max-w-md mx-auto mt-16 soft-card p-10 text-center">
         <h2 class="text-4xl font-bold text-sky-600 mb-2">MedTrack</h2>
         <form method="POST" class="space-y-4 mt-8" id="loginForm">
