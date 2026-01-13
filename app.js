@@ -442,7 +442,20 @@ app.get('/dashboard', (req, res) => {
                             <h3 class="font-bold text-xl mb-1 text-slate-800">${m.name}</h3>
                             <div class="w-full bg-slate-50 p-3 rounded-2xl mb-4">
                                 <div class="flex justify-between text-xs font-bold mb-1"><span class="text-slate-400 uppercase">คงเหลือ</span><span class="${m.stock <= (m.dosage * 3) ? 'text-rose-500 animate-pulse' : 'text-sky-600'}">${m.stock} ${m.unit}</span></div>
-                                <div class="w-full bg-slate-200 h-1.5 rounded-full"><div class="blue-gradient h-full rounded-full" style="width: ${Math.min((m.stock / (m.dosage * 10)) * 100, 100)}%"></div></div>
+                                <div class="w-full bg-slate-200 h-1.5 rounded-full">
+    <div class="blue-gradient h-full rounded-full" style="
+        width: ${(() => {
+            let fullStock;
+            if (m.unit.toLowerCase() === 'ml') {
+                fullStock = 300; // กำหนดว่ายาน้ำเต็มที่ 300 ml
+            } else {
+                fullStock = m.dosage * 10; // ยาเม็ดเต็มที่ 10 ครั้ง
+            }
+            return Math.min((m.stock / fullStock) * 100, 100);
+        })()}%;
+    "></div>
+</div>
+
                             </div>
                             <form onsubmit="confirmAction(event, 'บันทึกการทานยา?', '${m.name}', 'บันทึกแล้ว')" action="/take/${m.id}" method="POST" class="w-full">
                                 <button type="submit" class="w-full blue-gradient text-white py-4 rounded-xl font-bold ${m.stock < m.dosage ? 'opacity-50' : ''}" ${m.stock < m.dosage ? 'disabled' : ''}>${m.stock < m.dosage ? '❌ ยาหมด' : '✅ ทานแล้ว'}</button>
