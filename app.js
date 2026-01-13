@@ -114,9 +114,16 @@ CREATE TABLE IF NOT EXISTS users (
 });
 
 // ฟังก์ชันแจ้งเตือนเมื่อยาใกล้หมด
-function checkLowStock(userId, medName, currentStock) {
-    if (currentStock <= 5) {
+// ฟังก์ชันแจ้งเตือนเมื่อยาใกล้หมด
+function checkLowStock(userId, medName, currentStock, unit, dosage) {
+    let lowStockThreshold = 5; // default สำหรับยาเม็ด
 
+    // ถ้าเป็นยาแบบน้ำ (หน่วย ml) กำหนด threshold 30 ml
+    if (unit.toLowerCase() === 'ml') {
+        lowStockThreshold = 30;
+    }
+
+    if (currentStock <= lowStockThreshold) {
         db.get(
             "SELECT lineUserId FROM users WHERE id = ?",
             [userId],
@@ -124,13 +131,14 @@ function checkLowStock(userId, medName, currentStock) {
                 if (user && user.lineUserId) {
                     lineClient.pushMessage(user.lineUserId, [{
                         type: 'text',
-                        text: `⚠️ ยา ${medName} ใกล้หมดแล้ว (เหลือ ${currentStock})`
+                        text: `⚠️ ยา ${medName} ใกล้หมดแล้ว (เหลือ ${currentStock} ${unit})`
                     }]);
                 }
             }
         );
     }
 }
+
 
 // --- 3. UI LAYOUT (เพิ่มส่วน AI Chatbot เข้าไป) ---
 function layout(content, userId = null, activePage = 'dashboard') {
@@ -508,22 +516,26 @@ app.post('/add', upload.single('image'), (req, res) => {
 });
 
 app.post('/take/:id', (req, res) => {
-    db.get("SELECT name, stock, dosage FROM medicines WHERE id = ?", [req.params.id], (err, m) => {
+    db.get("SELECT name, stock, dosage, unit FROM medicines WHERE id = ?", [req.params.id], (err, m) => {
         if (m && m.stock >= m.dosage) {
-            const newStock = m.stock - m.dosage; // คำนวณสต็อกใหม่
+            const newStock = m.stock - m.dosage;
             db.run("UPDATE medicines SET stock = ? WHERE id = ?", [newStock, req.params.id], () => {
 
-                // --- เพิ่มบรรทัดนี้เพื่อสั่งให้ LINE เตือน ---
-                checkLowStock(req.session.userId, m.name, newStock);
+                // แจ้งเตือนเมื่อยาใกล้หมด
+                checkLowStock(req.session.userId, m.name, newStock, m.unit, m.dosage);
 
-                // --------------------------------------
-
-                const thaiTime = new Date(new Date().getTime() + (7 * 60 * 60 * 1000)).toISOString().replace('Z', '').replace('T', ' ');
-                db.run("INSERT INTO medicine_logs (userId, medicineId, medName, takenAt) VALUES (?,?,?,?)", [req.session.userId, req.params.id, m.name, thaiTime], () => res.redirect('/dashboard'));
+                const thaiTime = new Date(new Date().getTime() + (7 * 60 * 60 * 1000))
+                    .toISOString().replace('Z', '').replace('T', ' ');
+                db.run(
+                    "INSERT INTO medicine_logs (userId, medicineId, medName, takenAt) VALUES (?,?,?,?)",
+                    [req.session.userId, req.params.id, m.name, thaiTime],
+                    () => res.redirect('/dashboard')
+                );
             });
         }
     });
 });
+
 
 app.get('/logs', (req, res) => {
     if (!req.session.userId) return res.redirect('/login');
